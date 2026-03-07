@@ -7,7 +7,7 @@ export default defineConfig({
     base: isGitHubActions && repoName ? "/".concat(repoName, "/") : "/",
     plugins: [react()],
     server: {
-        host: 'https://walletmanagement.onrender.com',
+        host: true,
         proxy: {
             "/api": {
                 target: "https://walletmanagement.onrender.com",
