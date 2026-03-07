@@ -31,11 +31,14 @@ function buildUrl(path: string, query?: Record<string, string | undefined>): str
 }
 
 async function request<T>(path: string, init?: RequestInit, query?: Record<string, string | undefined>): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(buildUrl(path, query), {
-    headers: {
-      "Content-Type": "application/json"
-    },
-    ...init
+    ...init,
+    headers
   });
 
   if (!response.ok) {
