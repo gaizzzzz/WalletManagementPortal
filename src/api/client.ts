@@ -1,6 +1,7 @@
 import type { CreateTransactionPayload, ExpenseTypeStat, HeatmapPoint, Summary, Transaction } from "../types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE ?? "/api";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
 export class ApiError extends Error {
   public status: number;
@@ -13,7 +14,12 @@ export class ApiError extends Error {
 }
 
 function buildUrl(path: string, query?: Record<string, string | undefined>): string {
-  const url = new URL(`${API_BASE}${path}`, window.location.origin);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const isAbsoluteBase = /^https?:\/\//i.test(API_BASE);
+  const url = isAbsoluteBase
+    ? new URL(`${API_BASE}${normalizedPath}`)
+    : new URL(`${API_BASE}${normalizedPath}`, window.location.origin);
+
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
       if (value) {
@@ -21,7 +27,7 @@ function buildUrl(path: string, query?: Record<string, string | undefined>): str
       }
     });
   }
-  return `${url.pathname}${url.search}`;
+  return url.toString();
 }
 
 async function request<T>(path: string, init?: RequestInit, query?: Record<string, string | undefined>): Promise<T> {
