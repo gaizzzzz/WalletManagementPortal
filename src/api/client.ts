@@ -86,8 +86,12 @@ export const walletApi = {
     return request<HeatmapPoint[]>("/heatmap", undefined, { month });
   },
 
-  getTransactions(month: string): Promise<Transaction[]> {
-    return request<Transaction[]>("/transactions", undefined, { month });
+  getTransactions(month?: string, startDate?: string, endDate?: string): Promise<Transaction[]> {
+    const query: Record<string, string | undefined> = {};
+    if (month) query.month = month;
+    if (startDate) query.startDate = startDate;
+    if (endDate) query.endDate = endDate;
+    return request<Transaction[]>("/transactions", undefined, query);
   },
 
   createTransaction(payload: CreateTransactionPayload): Promise<Transaction> {

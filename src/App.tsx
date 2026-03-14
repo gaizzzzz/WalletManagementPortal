@@ -86,20 +86,28 @@ function metricClass(amount: number): string {
   return "";
 }
 
-function getIntensityLevel(intensity: number): number {
-  if (intensity <= 0) {
+function getIntensityLevel(intensity: number, maxIntensity: number): number {
+  if (intensity <= 0 || maxIntensity <= 0) {
     return 0;
   }
-  if (intensity <= 20) {
+  const ratio = intensity / maxIntensity;
+  if (ratio <= 0.25) {
     return 1;
   }
-  if (intensity <= 50) {
+  if (ratio <= 0.5) {
     return 2;
   }
-  if (intensity <= 100) {
+  if (ratio <= 0.75) {
     return 3;
   }
   return 4;
+}
+
+function formatHeatmapAmount(amount: number): string {
+  return new Intl.NumberFormat("vi-VN", {
+    notation: "compact",
+    maximumFractionDigits: 1
+  }).format(amount);
 }
 
 function toUserMessage(error: unknown): string {
@@ -114,6 +122,9 @@ function toUserMessage(error: unknown): string {
 
 function App() {
   const [selectedMonth, setSelectedMonth] = useState<string>(getMonthInputValue());
+  const [useDateRange, setUseDateRange] = useState<boolean>(false);
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
   const [dashboard, setDashboard] = useState<DashboardState>(initialDashboardState);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
@@ -137,6 +148,11 @@ function App() {
     return new Map(dashboard.heatmap.map((item) => [item.date.slice(0, 10), item.intensity]));
   }, [dashboard.heatmap]);
 
+  
+  const maxHeatmapIntensity = useMemo(() => {
+    return dashboard.heatmap.reduce((max, item) => Math.max(max, item.intensity), 0);
+  }, [dashboard.heatmap]);
+
   const heatmapCells = useMemo(() => {
     const [yearString, monthString] = selectedMonth.split("-");
     const year = Number(yearString);
@@ -149,11 +165,12 @@ function App() {
       const day = index + 1;
       const isoDate = `${yearString}-${monthString}-${String(day).padStart(2, "0")}`;
       const intensity = heatmapByDate.get(isoDate) ?? 0;
-      return { day, isoDate, intensity };
+      const level = getIntensityLevel(intensity, maxHeatmapIntensity);
+      return { day, isoDate, intensity, level };
     });
-  }, [heatmapByDate, selectedMonth]);
+  }, [heatmapByDate, selectedMonth, maxHeatmapIntensity]);
 
-  async function fetchDashboard(month: string, isManualRefresh = false): Promise<void> {
+  async function fetchDashboard(month: string, isManualRefresh = false, startDate?: string, endDate?: string): Promise<void> {
     if (isManualRefresh) {
       setIsRefreshing(true);
     } else {
@@ -166,7 +183,9 @@ function App() {
         walletApi.getSummary(month),
         walletApi.getTopExpenseTypes(month),
         walletApi.getHeatmapSnapshot(month),
-        walletApi.getTransactions(month)
+        useDateRange && startDate && endDate
+          ? walletApi.getTransactions(undefined, startDate, endDate)
+          : walletApi.getTransactions(month)
       ]);
 
       setDashboard({
@@ -184,11 +203,23 @@ function App() {
   }
 
   useEffect(() => {
-    void fetchDashboard(selectedMonth);
-  }, [selectedMonth]);
+    if (!useDateRange) {
+      void fetchDashboard(selectedMonth);
+    }
+  }, [selectedMonth, useDateRange]);
+
+  useEffect(() => {
+    if (useDateRange && startDate && endDate) {
+      void fetchDashboard(selectedMonth, false, startDate, endDate);
+    }
+  }, [startDate, endDate, useDateRange]);
 
   async function handleRefresh(): Promise<void> {
-    await fetchDashboard(selectedMonth, true);
+    if (useDateRange && startDate && endDate) {
+      await fetchDashboard(selectedMonth, true, startDate, endDate);
+    } else {
+      await fetchDashboard(selectedMonth, true);
+    }
   }
 
   async function handleCreateTransaction(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -212,7 +243,11 @@ function App() {
         note: form.note?.trim() ?? ""
       });
       setForm((prev) => ({ ...prev, category: "", amount: 0, note: "" }));
-      await fetchDashboard(selectedMonth, true);
+      if (useDateRange && startDate && endDate) {
+        await fetchDashboard(selectedMonth, true, startDate, endDate);
+      } else {
+        await fetchDashboard(selectedMonth, true);
+      }
     } catch (err: unknown) {
       setFormError(toUserMessage(err));
     } finally {
@@ -225,7 +260,11 @@ function App() {
     setError("");
     try {
       await walletApi.deleteTransaction(id);
-      await fetchDashboard(selectedMonth, true);
+      if (useDateRange && startDate && endDate) {
+        await fetchDashboard(selectedMonth, true, startDate, endDate);
+      } else {
+        await fetchDashboard(selectedMonth, true);
+      }
     } catch (err: unknown) {
       setError(toUserMessage(err));
     } finally {
@@ -238,31 +277,65 @@ function App() {
       <header className="topbar">
         <h1>ManageWalletPortal</h1>
         <div className="actions">
-          <label htmlFor="month" className="inline-label">
-            Month
+          <label htmlFor="useDateRange" className="inline-label">
+            <input
+              type="checkbox"
+              id="useDateRange"
+              checked={useDateRange}
+              onChange={(event) => setUseDateRange(event.target.checked)}
+            />
+            Use Date Range
           </label>
-          <select
-            id="month"
-            value={selectedMonthPart}
-            onChange={(event) => setSelectedMonth(`${selectedYearPart}-${event.target.value}`)}
-          >
-            {MONTH_OPTIONS.map((monthOption) => (
-              <option key={monthOption.value} value={monthOption.value}>
-                {monthOption.label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Year"
-            value={selectedYearPart}
-            onChange={(event) => setSelectedMonth(`${event.target.value}-${selectedMonthPart}`)}
-          >
-            {yearOptions.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
+          {useDateRange ? (
+            <>
+              <label htmlFor="startDate" className="inline-label">
+                Start Date
+              </label>
+              <input
+                type="date"
+                id="startDate"
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+              />
+              <label htmlFor="endDate" className="inline-label">
+                End Date
+              </label>
+              <input
+                type="date"
+                id="endDate"
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <label htmlFor="month" className="inline-label">
+                Month
+              </label>
+              <select
+                id="month"
+                value={selectedMonthPart}
+                onChange={(event) => setSelectedMonth(`${selectedYearPart}-${event.target.value}`)}
+              >
+                {MONTH_OPTIONS.map((monthOption) => (
+                  <option key={monthOption.value} value={monthOption.value}>
+                    {monthOption.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Year"
+                value={selectedYearPart}
+                onChange={(event) => setSelectedMonth(`${event.target.value}-${selectedMonthPart}`)}
+              >
+                {yearOptions.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           <button onClick={handleRefresh} disabled={loading || isRefreshing}>
             {isRefreshing ? "Refreshing..." : "Refresh"}
           </button>
@@ -314,10 +387,10 @@ function App() {
               {heatmapCells.map((cell) => (
                 <div
                   key={cell.isoDate}
-                  className={`heatmap-cell level-${getIntensityLevel(cell.intensity)}`}
-                  title={`${cell.isoDate}: ${cell.intensity}`}
+                  className={`heatmap-cell level-${cell.level}`}
+                  title={`${cell.isoDate}: ${formatCurrency(cell.intensity)}`}
                 >
-                  {cell.day}
+                  {formatHeatmapAmount(cell.intensity)}
                 </div>
               ))}
             </div>
@@ -498,3 +571,9 @@ function TransactionRow({ tx, deleting, onDelete }: TransactionRowProps) {
 }
 
 export default App;
+
+
+
+
+
+
